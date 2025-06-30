@@ -14,7 +14,7 @@ await mkdir(UPLOAD_DIR, { recursive: true })
 // 🟢 Wasabi credentials
 const WASABI_BUCKET = 'upward'
 const WASABI_REGION = 'us-east-2'
-const WASABI_ENDPOINT = 'https://s3.us-east-1.wasabisys.com'
+const WASABI_ENDPOINT = 'https://s3.us-east-2.wasabisys.com'
 // get your access&secret from Wasabi console
 const WASABI_KEY = 'HZOUCM9I2D1MI9HGYL5A'
 const WASABI_SECRET = 'wbD9rW8BG08UgX6z19kRa7nc7hzl16vRhEv3TIE6'
