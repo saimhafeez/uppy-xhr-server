@@ -1,6 +1,23 @@
 {
+  "name": "wasabi-uploader-proxy",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Proxy uploads to a private Wasabi bucket via pre-signed URLs",
+  "main": "server.js",
+  "bin": {
+    "wasabi-uploader-proxy": "server.js"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
   "dependencies": {
-    "formidable": "^3.5.4",
+    "aws-sdk": "^2.1573.0",
+    "formidable": "^3.5.0",
     "node-fetch": "^3.3.2"
-  }
+  },
+  "engines": {
+    "node": ">=16.16.0"
+  },
+  "keywords": ["wasabi", "s3", "upload", "proxy", "node"],
+  "license": "MIT"
 }
