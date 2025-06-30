@@ -5,23 +5,39 @@ import { fileURLToPath } from 'node:url'
 import { mkdir } from 'node:fs/promises'
 import fs from 'node:fs/promises'
 import formidable from 'formidable'
-import fetch from 'node-fetch' // npm install node-fetch
+import fetch from 'node-fetch'                    // for streaming upload
+import AWS from 'aws-sdk'                         // S3 compatible for Wasabi
 
 const UPLOAD_DIR = new URL('./uploads/', import.meta.url)
 await mkdir(UPLOAD_DIR, { recursive: true })
 
-const BUCKET = 'upwardlibrary' // <-- your bucket name
-const REGION = 'us-east-1'     // <-- your AWS (or Wasabi) region (if different, change!)
-const PUBLIC_BASE = `https://${BUCKET}.s3.${REGION}.amazonaws.com/`
+// 🟢 Wasabi credentials
+const WASABI_BUCKET = 'upward'
+const WASABI_REGION = 'us-east-2'
+const WASABI_ENDPOINT = 'https://s3.us-east-1.wasabisys.com'
+// get your access&secret from Wasabi console
+const WASABI_KEY = 'HZOUCM9I2D1MI9HGYL5A'
+const WASABI_SECRET = 'wbD9rW8BG08UgX6z19kRa7nc7hzl16vRhEv3TIE6'
 
+// S3 Client for Wasabi
+const s3 = new AWS.S3({
+  endpoint: WASABI_ENDPOINT,
+  region: WASABI_REGION,
+  accessKeyId: WASABI_KEY,
+  secretAccessKey: WASABI_SECRET,
+  signatureVersion: 'v4',
+})
+
+// CORS headers
+const headers = {
+  'Content-Type': 'application/json',
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'OPTIONS, POST, GET',
+  'Access-Control-Max-Age': 2592000,
+}
+
+// HTTP server
 http.createServer(async (req, res) => {
-  const headers = {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'OPTIONS, POST, GET',
-    'Access-Control-Max-Age': 2592000, // 30 days
-  }
-
   if (req.method === 'OPTIONS') {
     res.writeHead(204, headers)
     res.end()
@@ -29,60 +45,60 @@ http.createServer(async (req, res) => {
   }
 
   if (req.url === '/upload' && req.method.toLowerCase() === 'post') {
-    // Parse the upload form data
-    const form = formidable({
-      keepExtensions: true,
-      uploadDir: fileURLToPath(UPLOAD_DIR),
-    })
+    // handle upload
+    const form = formidable({ multiples: false, uploadDir: fileURLToPath(UPLOAD_DIR), keepExtensions: true })
 
     form.parse(req, async (err, fields, files) => {
       if (err) {
-        console.error('Upload err:', err)
         res.writeHead(500, headers)
         res.end(JSON.stringify({ error: err.message }))
         return
       }
-
       try {
-        // Expecting field name 'file' (Uppy default)
         const uploaded = (files.file && files.file[0]) || files[Object.keys(files)[0]][0]
         const { filepath, originalFilename, mimetype, size } = uploaded
-        // Compose a unique filename
         const timestamp = Date.now()
         const safeName = originalFilename.replace(/[^\w.\-]/g, '_')
-        const s3Filename = `${timestamp}_${safeName}`
-        const s3Url = PUBLIC_BASE + s3Filename
+        const wasabiKey = `${timestamp}_${safeName}`
 
-        // Read file as Buffer
-        const fileData = await fs.readFile(filepath)
-        // PUT to S3
-        const s3Resp = await fetch(s3Url, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': mimetype || 'application/octet-stream',
-            'Content-Length': size
-          },
-          body: fileData
+        // 1. Generate a Pre-Signed PUT URL (valid for 10 minutes)
+        const url = await s3.getSignedUrlPromise('putObject', {
+          Bucket: WASABI_BUCKET,
+          Key: wasabiKey,
+          ContentType: mimetype || 'application/octet-stream',
+          Expires: 600,
         })
 
-        if (!s3Resp.ok) {
-          const msg = await s3Resp.text()
-          throw new Error(`S3 PUT failed: ${s3Resp.status} - ${msg}`)
+        // 2. Read file from disk
+        const fileData = await fs.readFile(filepath)
+
+        // 3. PUT the file to Wasabi via pre-signed URL
+        const resp = await fetch(url, {
+          method: 'PUT',
+          headers: { 'Content-Type': mimetype || 'application/octet-stream' },
+          body: fileData,
+        })
+
+        if (!resp.ok) {
+          const msg = await resp.text()
+          throw new Error(`Wasabi PUT failed: ${resp.status} - ${msg}`)
         }
 
-        // Optionally: remove temp file from disk
+        // delete temp file
         await fs.unlink(filepath).catch(() => { })
+
+        // Public read URL (if the object is not public, this will 403 to others, but you as owner can always access)
+        const wasabiUrl = `${WASABI_ENDPOINT.replace(/^https?:\/\//, `https://${WASABI_BUCKET}.s3.`)}${WASABI_REGION}.wasabisys.com/${wasabiKey}`
 
         res.writeHead(200, headers)
         res.end(JSON.stringify({
           ok: true,
-          s3url: s3Url,
-          filename: s3Filename,
+          wasabi_url: wasabiUrl,
+          key: wasabiKey,
           size,
           mimetype,
         }))
       } catch (e) {
-        console.error('Failed to upload to S3:', e)
         res.writeHead(500, headers)
         res.end(JSON.stringify({ error: e.message }))
       }
@@ -90,7 +106,6 @@ http.createServer(async (req, res) => {
     return
   }
 
-  // Not Found
   res.writeHead(404, headers)
   res.end(JSON.stringify({ error: 'Not found' }))
 }).listen(3020, () => {
