@@ -62,7 +62,7 @@ async function uploadToWasabi({ fileData, wasabiKey, mimetype }) {
     const msg = await resp.text()
     throw new Error(`Wasabi PUT failed: ${resp.status} - ${msg}`)
   }
-  return `${WASABI_ENDPOINT.replace(/^https?:\/\//, `https://${WASABI_BUCKET}.s3.`)}${WASABI_REGION}.wasabisys.com/${wasabiKey}`
+  return `https://${WASABI_BUCKET}.s3.${WASABI_REGION}.wasabisys.com/${wasabiKey}`;
 }
 
 // == MUX: Direct Upload Function ==
