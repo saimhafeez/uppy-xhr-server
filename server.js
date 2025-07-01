@@ -52,10 +52,14 @@ async function uploadToWasabi({ fileData, wasabiKey, mimetype }) {
     Key: wasabiKey,
     ContentType: mimetype || 'application/octet-stream',
     Expires: 600,
+    ACL: 'public-read',   // <-- add this!
   })
   const resp = await fetch(url, {
     method: 'PUT',
-    headers: { 'Content-Type': mimetype || 'application/octet-stream' },
+    headers: {
+      'Content-Type': mimetype || 'application/octet-stream',
+      'x-amz-acl': 'public-read'       // <-- critical for compliance!
+    },
     body: fileData,
   })
   if (!resp.ok) {
