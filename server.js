@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { randomUUID } from 'crypto';
 import http from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { mkdir } from 'node:fs/promises'
@@ -66,7 +67,10 @@ async function uploadToWasabi({ fileData, wasabiKey, mimetype }) {
 
 // == MUX: Direct Upload Function ==
 async function uploadToMux({ fileData, mimetype, originalFilename }) {
-  // 1. Create direct upload URL
+  // 🆕 Generate a random external_id for this asset
+  const external_id = randomUUID(); // If on old Node.js: use Date.now() + Math.random().toString(36).slice(2)
+
+  // 1. Create direct upload URL (attach meta.external_id)
   const response = await fetch('https://api.mux.com/video/v1/uploads', {
     method: 'POST',
     headers: {
@@ -76,17 +80,20 @@ async function uploadToMux({ fileData, mimetype, originalFilename }) {
     body: JSON.stringify({
       new_asset_settings: {
         playback_policies: ['public'],
-        passthrough: originalFilename
+        passthrough: originalFilename,
+        meta: {
+          external_id // include the random id here
+        }
       }
     })
-  })
+  });
   if (!response.ok) {
-    const text = await response.text()
+    const text = await response.text();
     throw new Error(`MUX upload create failed: ${response.status}: ${text}`)
   }
-  const json = await response.json()
-  const upload_url = json.data.url
-  const upload_id = json.data.id
+  const json = await response.json();
+  const upload_url = json.data.url;
+  const upload_id = json.data.id;
 
   // 2. PUT the video file to mux upload_url
   const uploadResp = await fetch(upload_url, {
@@ -96,14 +103,18 @@ async function uploadToMux({ fileData, mimetype, originalFilename }) {
       'Origin': '*'
     },
     body: fileData
-  })
+  });
   if (!uploadResp.ok) {
-    const text = await uploadResp.text()
+    const text = await uploadResp.text();
     throw new Error(`MUX upload PUT failed: ${uploadResp.status}: ${text}`)
   }
 
   // 3. Return the relevant details
-  return { mux_upload_id: upload_id, upload_url }
+  return {
+    mux_upload_id: upload_id,
+    upload_url,
+    external_id // return the random external_id as well
+  };
 }
 
 http.createServer(async (req, res) => {
