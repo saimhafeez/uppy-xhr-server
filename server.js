@@ -66,65 +66,44 @@ async function uploadToWasabi({ fileData, wasabiKey, mimetype }) {
 
 // == MUX: Direct Upload Function ==
 async function uploadToMux({ fileData, mimetype, originalFilename }) {
-  // Step 1: Get Mux Upload URL
-  const assetRes = await fetch(MUX_API_URL, {
+  // 1. Create direct upload URL
+  const response = await fetch('https://api.mux.com/video/v1/uploads', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Accept': 'application/json'
+      'Authorization': 'Basic ' + Buffer.from(`${MUX_TOKEN_ID}:${MUX_TOKEN_SECRET}`).toString('base64'),
     },
     body: JSON.stringify({
-      input: [{ url: null }],
-      playback_policy: ['public'],
-      new_asset_settings: { playback_policies: ['public'] },
-      cors_origin: '*'
-      // For instant upload use: { "input": [{ "url": null }] }
-    }),
-    // Basic auth: Mux uses API token/secret as username/password
-    agent: undefined,
-    duplex: "half",
-    credentials: "include",
-    // Node-fetch v3: use headers + `Authorization`
-    // Browser: use btoa()
-    // For node-fetch, send as basic auth:
-    // See: https://github.com/node-fetch/node-fetch#http-basic-authentication
-    // Best practice:
-    //     headers: { Authorization: "Basic " + Buffer.from(id+":"+secret).toString("base64") }
-    // But node-fetch doesn’t support username/password in URL field, only via Authorization header:
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      'Authorization': 'Basic ' + Buffer.from(`${MUX_TOKEN_ID}:${MUX_TOKEN_SECRET}`).toString('base64'),
-    }
+      new_asset_settings: {
+        playback_policies: ['public'],
+        passthrough: originalFilename
+      }
+    })
   })
-
-  if (!assetRes.ok) {
-    const text = await assetRes.text()
-    throw new Error(`MUX asset create failed: ${assetRes.status}: ${text}`)
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(`MUX upload create failed: ${response.status}: ${text}`)
   }
-  const assetJson = await assetRes.json()
-  const uploadObj = assetJson.data && assetJson.data && assetJson.data.upload_id ? assetJson.data : (assetJson.data && assetJson.data.inputs && assetJson.data.inputs[0]) || assetJson.data
-  // fallback: find the upload URL
-  const uploadUrl = (assetJson && assetJson.data && assetJson.data.upload_url) || (uploadObj && uploadObj.url)
-  const assetId = assetJson.data && assetJson.data.id
+  const json = await response.json()
+  const upload_url = json.data.url
+  const upload_id = json.data.id
 
-  if (!uploadUrl) throw new Error('MUX did not return an upload_url')
-  // Step 2: PUT the file to the upload_url
-  const muxUploadResp = await fetch(uploadUrl, {
+  // 2. PUT the video file to mux upload_url
+  const uploadResp = await fetch(upload_url, {
     method: 'PUT',
-    body: fileData,
     headers: {
       'Content-Type': mimetype || 'application/octet-stream',
-      'Origin': '*',
-      'x-requested-with': 'XMLHttpRequest'
-    }
+      'Origin': '*'
+    },
+    body: fileData
   })
-  if (!muxUploadResp.ok) {
-    const text = await muxUploadResp.text()
-    throw new Error(`MUX PUT failed: ${muxUploadResp.status}: ${text}`)
+  if (!uploadResp.ok) {
+    const text = await uploadResp.text()
+    throw new Error(`MUX upload PUT failed: ${uploadResp.status}: ${text}`)
   }
-  // Step 3: return the asset id and url to client!
-  return { mux_asset_id: assetId, upload_url: uploadUrl }
+
+  // 3. Return the relevant details
+  return { mux_upload_id: upload_id, upload_url }
 }
 
 http.createServer(async (req, res) => {
